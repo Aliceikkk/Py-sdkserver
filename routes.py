@@ -1,6 +1,6 @@
 from __main__ import app
 
-from flask import request, send_from_directory, abort, render_template, flash
+from flask import request, send_from_directory, abort, render_template, Blueprint, render_template, redirect, url_for, flash
 import random
 import string
 import json
@@ -13,6 +13,7 @@ from crypto import decrypt_rsa_password, decrypt_sdk_authkey
 from utils import forward_request, request_ip, get_country_for_ip, password_hash, password_verify, mask_string, mask_email
 import define
 from config import get_config
+from captcha import datetime
 
 # global dispatch
 @app.route('/query_region_list', methods = ['GET'])
@@ -163,7 +164,7 @@ def account_risky_api_check():
 @app.route('/hk4e_global/mdk/guest/guest/v2/login', methods = ['POST'])
 def mdk_guest_login():
    if not get_config()["auth"]["enable_server_guest"]:
-      return json_rsp_with_msg(define.RES_LOGIN_CANCEL, "Guest accounts are disabled.", {}) # todo: this seems to bug client out if already logged-in as guest
+      return json_rsp_with_msg(define.RES_LOGIN_CANCEL, "游客登录未开启", {}) # todo: this seems to bug client out if already logged-in as guest
 
    try:
       cursor = get_db().cursor()
@@ -178,7 +179,7 @@ def mdk_guest_login():
          user = cursor.execute("SELECT * FROM `accounts` WHERE `uid` = ? AND `type` = ?", (guest["uid"], define.ACCOUNT_TYPE_GUEST)).fetchone()
          if not user:
             print(f"Found valid account_guest={guest['uid']} for device={guest['device']}, but no such account exists")
-            return json_rsp_with_msg(define.RES_LOGIN_ERROR, "System error; please try again later.", {}) # account for which guest binding exists is not in db?
+            return json_rsp_with_msg(define.RES_LOGIN_ERROR, "系统错误，请稍后重试", {}) # account for which guest binding exists is not in db?
 
       return json_rsp_with_msg(define.RES_SUCCESS, "OK", {
          "data": {
@@ -188,7 +189,7 @@ def mdk_guest_login():
       })
    except Exception as err:
       print(f"Unexpected {err=}, {type(err)=} while handling guest login event")
-      return json_rsp_with_msg(define.RES_FAIL, "System error; please try again later.", {})
+      return json_rsp_with_msg(define.RES_FAIL, "系统错误，请稍后重试", {})
 
 @app.route('/hk4e_cn/mdk/shield/api/login', methods = ['POST'])
 @app.route('/hk4e_global/mdk/shield/api/login', methods = ['POST'])
@@ -198,7 +199,7 @@ def mdk_shield_api_login():
 
       user = cursor.execute("SELECT * FROM `accounts` WHERE `name` = ? AND `type` = ?", (request.json["account"], define.ACCOUNT_TYPE_NORMAL)).fetchone()
       if not user:
-         return json_rsp_with_msg(define.RES_LOGIN_FAILED, "Incorrect username or password.", {})
+         return json_rsp_with_msg(define.RES_LOGIN_FAILED, "您输入的账户或密码不正确", {})
 
       if get_config()["auth"]["enable_password_verify"]:
          if request.json["is_crypto"] == True:
@@ -207,7 +208,7 @@ def mdk_shield_api_login():
             password = request.json["password"]
 
          if not password_verify(password, user["password"]):
-            return json_rsp_with_msg(define.RES_LOGIN_FAILED, "Incorrect username or password.", {})
+            return json_rsp_with_msg(define.RES_LOGIN_FAILED, "您输入的账户或密码不正确", {})
 
       token = ''.join(random.choice(string.ascii_letters) for i in range(get_config()["security"]["token_length"]))
       cursor.execute(
@@ -234,7 +235,7 @@ def mdk_shield_api_login():
       })
    except Exception as err:
       print(f"Unexpected {err=}, {type(err)=} while handling shield login event")
-      return json_rsp_with_msg(define.RES_FAIL, "System error; please try again later.", {})
+      return json_rsp_with_msg(define.RES_FAIL, "系统错误，请稍后重试", {})
 
 @app.route('/hk4e_cn/mdk/shield/api/verify', methods = ['POST'])
 @app.route('/hk4e_global/mdk/shield/api/verify', methods = ['POST'])
@@ -244,15 +245,15 @@ def mdk_shield_api_verify():
 
       token = cursor.execute("SELECT * FROM `accounts_tokens` WHERE `token` = ? AND `uid` = ?", (request.json["token"], request.json["uid"])).fetchone()
       if not token:
-         return json_rsp_with_msg(define.RES_LOGIN_FAILED, "Game account cache information error.", {})
+         return json_rsp_with_msg(define.RES_LOGIN_FAILED, "游戏帐户缓存信息错误", {})
 
       if token["device"] != request.headers.get('x-rpc-device_id'):
-         return json_rsp_with_msg(define.RES_LOGIN_FAILED, "Game account cache information error.", {}) # token was initially created on different device; forbid it
+         return json_rsp_with_msg(define.RES_LOGIN_FAILED, "游戏帐户缓存信息错误", {}) # token was initially created on different device; forbid it
 
       user = cursor.execute("SELECT * FROM `accounts` WHERE `uid` = ? AND `type` = ?", (token["uid"], define.ACCOUNT_TYPE_NORMAL)).fetchone()
       if not user:
          print(f"Found valid account_token={token['token']} for uid={token['uid']}, but no such account exists")
-         return json_rsp_with_msg(define.RES_LOGIN_ERROR, "System error; please try again later.", {}) # account for which token exists is not in db?
+         return json_rsp_with_msg(define.RES_LOGIN_ERROR, "系统错误，请稍后重试", {}) # account for which token exists is not in db?
 
       return json_rsp_with_msg(define.RES_SUCCESS, "OK", {
          "data": {
@@ -269,7 +270,7 @@ def mdk_shield_api_verify():
       })
    except Exception as err:
       print(f"Unexpected {err=}, {type(err)=} while handling shield verify event")
-      return json_rsp_with_msg(define.RES_FAIL, "System error; please try again later.", {})
+      return json_rsp_with_msg(define.RES_FAIL, "系统错误，请稍后重试", {})
 
 @app.route('/hk4e_cn/combo/granter/login/v2/login', methods = ['POST'])
 @app.route('/hk4e_global/combo/granter/login/v2/login', methods = ['POST'])
@@ -281,21 +282,21 @@ def combo_granter_login_v2_login():
       if data["guest"]:
          guest = cursor.execute("SELECT * FROM `accounts_guests` WHERE `device` = ? AND `uid` = ?", (request.json["device"], data["uid"])).fetchone()
          if not guest:
-            return json_rsp_with_msg(define.RES_LOGIN_FAILED, "Game account cache information error.", {})
+            return json_rsp_with_msg(define.RES_LOGIN_FAILED, "游戏帐户缓存信息错误", {})
 
          user = cursor.execute("SELECT * FROM `accounts` WHERE `uid` = ? AND `type` = ?", (data["uid"], define.ACCOUNT_TYPE_GUEST)).fetchone()
          if not user:
             print(f"Found valid account_guest={guest['uid']} for device={guest['device']}, but no such account exists")
-            return json_rsp_with_msg(define.RES_LOGIN_ERROR, "System error; please try again later.", {}) # account for which guest binding exists is not in db?
+            return json_rsp_with_msg(define.RES_LOGIN_ERROR, "系统错误，请稍后重试", {}) # account for which guest binding exists is not in db?
       else:
          token = cursor.execute("SELECT * FROM `accounts_tokens` WHERE `token` = ? AND `uid` = ?", (data["token"], data["uid"])).fetchone()
          if not token:
-            return json_rsp_with_msg(define.RES_LOGIN_FAILED, "Game account cache information error.", {})
+            return json_rsp_with_msg(define.RES_LOGIN_FAILED, "游戏帐户缓存信息错误", {})
 
          user = cursor.execute("SELECT * FROM `accounts` WHERE `uid` = ? AND `type` = ?", (token["uid"], define.ACCOUNT_TYPE_NORMAL)).fetchone()
          if not user:
             print(f"Found valid account_token={token['token']} for uid={token['uid']}, but no such account exists")
-            return json_rsp_with_msg(define.RES_LOGIN_ERROR, "System error; please try again later.", {}) # account for which token exists is not in db?
+            return json_rsp_with_msg(define.RES_LOGIN_ERROR, "系统错误，请稍后重试", {}) # account for which token exists is not in db?
 
       combo_token = ''.join(random.choice('0123456789abcdef') for i in range(get_config()["security"]["token_length"]))
       cursor.execute(
@@ -315,7 +316,7 @@ def combo_granter_login_v2_login():
       })
    except Exception as err:
       print(f"Unexpected {err=}, {type(err)=} while handling combo login event")
-      return json_rsp_with_msg(define.RES_FAIL, "System error; please try again later.", {})
+      return json_rsp_with_msg(define.RES_FAIL, "系统错误，请稍后重试", {})
 
 @app.route('/hk4e_cn/combo/granter/login/beforeVerify', methods = ['POST'])
 @app.route('/hk4e_global/combo/granter/login/beforeVerify', methods = ['POST'])
@@ -405,28 +406,45 @@ def account_recover():
 
    return render_template("account/recover.tmpl")
 
-@app.route('/account/register', methods = ['GET', 'POST'])
+
+
+@app.route('/account/register', methods=['GET', 'POST'])
 def account_register():
-   cursor = get_db().cursor()
+    db = get_db()
+    cursor = db.cursor()
 
-   if request.method == 'POST':
-      user = cursor.execute("SELECT * FROM `accounts` WHERE `name` = ?", (request.form.get('username'), )).fetchone()
-      if user:
-         flash('账户已被使用', 'error')
-      elif not re.fullmatch(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', request.form.get('email')):
-         flash('提供的邮箱无效', 'error')
-      elif request.form.get('password') != request.form.get('passwordv2'):
-         flash('密码错误', 'error')
-      elif len(request.form.get('password')) < get_config()["security"]["min_password_len"]:
-         flash(f"密码必须至少包含 {get_config()['security']['min_password_len']} 个字符", 'error')
-      else:
-         cursor.execute(
-            "INSERT INTO `accounts` (`name`, `email`, `password`, `type`, `epoch_created`) VALUES (?, ?, ?, ?, ?)",
-            (request.form.get('username'), request.form.get('email'), password_hash(request.form.get('password')), define.ACCOUNT_TYPE_NORMAL, int(epoch()))
-         )
-         flash('账户创建成功 请关闭此页面登录游戏', 'success')
+    if request.method == 'POST':
+        # 验证用户名是否已存在
+        user = cursor.execute("SELECT * FROM `accounts` WHERE `name` = ?", (request.form.get('username'), )).fetchone()
+        if user:
+            flash('用户名已存在', 'error')
+        elif request.form.get('password') != request.form.get('passwordv2'):
+            flash('两次密码不一致', 'error')
+        elif len(request.form.get('password')) < get_config()["security"]["min_password_len"]:
+            flash(f"密码至少包含 {get_config()['security']['min_password_len']} 个字符", 'error')
+        else:
+            # 验证验证码是否正确和未过期
+            captcha = request.form.get('captcha')
+            email = request.form.get('email')
+            expire_time = cursor.execute("SELECT `captcha`, `expire_time` FROM `captcha` WHERE `captcha` = ?", (captcha, )).fetchone()
+            if not expire_time or datetime.now() > datetime.fromtimestamp(expire_time['expire_time']):
+                flash('验证码已过期或错误', 'error')
+            else:
+                # 插入新用户数据
+                cursor.execute(
+                    """
+                    INSERT INTO `accounts` (`name`, `email`, `password`, `captcha`, `type`, `epoch_created`)
+                    SELECT ?, ?, ?, ?, ?, ? FROM DUAL
+                    WHERE NOT EXISTS (SELECT * FROM `accounts` WHERE `name` = ?)
+                    """,
+                    (request.form.get('username'), email, password_hash(request.form.get('password')), captcha, define.ACCOUNT_TYPE_NORMAL, int(epoch()))
+                )
+                db.commit()
+                flash('注册成功，请关闭此页面登录游戏', 'success')
 
-   return render_template("account/register.tmpl")
+    return render_template("account/register.tmpl")
+
+
 
 
 # gacha
