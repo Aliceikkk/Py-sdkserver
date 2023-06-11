@@ -27,6 +27,7 @@ def init_db():
                      `name`  TEXT UNIQUE,
                      `email` TEXT UNIQUE,
                      `password`  TEXT,
+                     `captcha`  TEXT,
                      `type`  INTEGER NOT NULL,
                      `epoch_created` INTEGER NOT NULL,
                      PRIMARY KEY(`uid` AUTOINCREMENT)
@@ -68,6 +69,13 @@ def init_db():
                      `ip`  TEXT NOT NULL,
                      `epoch_generated` INTEGER NOT NULL,
                      PRIMARY KEY(`uid`)
+                  )
+   """)
+   cursor.execute("""CREATE TABLE `captcha` (
+                     `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+                     `email` TEXT NOT NULL,
+                     `captcha`  TEXT NOT NULL,
+                     `expire_time`  TEXT NOT NULL
                   )
    """)
 
