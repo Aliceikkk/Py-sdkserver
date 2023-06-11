@@ -3,11 +3,37 @@
 {% block header %}账户注册{% endblock %}
 
 {% block content %}
-  <form method="post">
+<form method="post">
     <input type="text" name="username" required="" placeholder="用户名">
     <input type="text" name="email" required="" placeholder="邮箱">
+    <button type="button" id="send-captcha">发送验证码</button>
+    <input type="text" name="captcha" required="" placeholder="验证码">
     <input type="password" name="password" required="" placeholder="密码">
-    <input type="password" name="passwordv2" required="" placeholder="再次输入密码">
+    <input type="password" name="password_confirm" required="" placeholder="再次输入密码">
     <button type="submit">注册</button>
-  </form>
+</form>
+
+<script>
+    $(function() {
+        $('#send-captcha').click(function() {
+            var email = $('input[name="email"]').val();
+            $.ajax({
+                url: '/captcha/send',
+                type: 'post',
+                data: { email: email },
+                dataType: 'json',
+                success: function(data) {
+                    if (data.success) {
+                        alert(data.message);
+                    } else {
+                        alert('验证码发送失败：' + data.message);
+                    }
+                },
+                error: function() {
+                    alert('验证码发送失败');
+                }
+            });
+        });
+    });
+</script>
 {% endblock %}
